@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>D-eraser Countdown</title>
+  <style>
+    html,body{height:100%;margin:0}
+    body{display:grid;place-items:center;background:#0f172a;color:#fff;font-family:Inter, Roboto, "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif}
+    .wrap{position:relative;width:100%;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    .under{position:absolute;z-index:0;pointer-events:none;user-select:none}
+    .under .text{font-size:14vh;font-weight:800;letter-spacing:0.02em}
+    canvas{position:absolute;z-index:1;touch-action:none}
+    .hint{position:absolute;bottom:4vh;left:50%;transform:translateX(-50%);font-size:1.4rem;opacity:0.8}
+    @media (max-width:600px){.under .text{font-size:20vw}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- 아래(지우면 드러날) 텍스트 -->
+    <div class="under" aria-hidden="true">
+      <div class="text">D-(365+7)</div>
+    </div>
+
+    <!-- 상단 캔버스: 초기에는 큰 "D-7"이 보이고, 마우스/터치로 지우면 투명해져 아래 텍스트가 보임 -->
+    <canvas id="eraser"></canvas>
+
+    <div class="hint">마우스 또는 손가락으로 지우세요</div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('eraser');
+    const ctx = canvas.getContext('2d');
+    let dpr = Math.max(window.devicePixelRatio || 1, 1);
+
+    function resize() {
+      dpr = Math.max(window.devicePixelRatio || 1, 1);
+      const w = innerWidth;
+      const h = innerHeight;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      drawOverlay();
+    }
+
+    function drawOverlay(){
+      // 전체를 배경색으로 채우고, 중앙에 큰 D-7 텍스트를 그림
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      // 배경색 (이 색을 지우개 역할로 덮음)
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0,0,canvas.width/dpr,canvas.height/dpr);
+
+      // D-7 텍스트
+      const fontSize = Math.min(innerWidth, innerHeight) * 0.14; // 반응형
+      ctx.font = `700 ${fontSize}px/1 "Noto Sans KR", Roboto, system-ui`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText('D-7', innerWidth/2, innerHeight/2);
+
+      // 약간의 그림자 효과로 입체감
+      // (그림자 대신 외곽선을 넣고 싶으면 strokeText 사용)
+      ctx.lineWidth = Math.max(2, fontSize * 0.03);
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.strokeText('D-7', innerWidth/2, innerHeight/2);
+
+      // 초기 composite는 기본(소거 안 함). 지우면 destination-out로 투명 처리.
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // 지우개 그리기: destination-out 원을 그려서 투명하게 만듦
+    let drawing = false;
+    function pointerDown(e){
+      drawing = true;
+      drawErase(e);
+    }
+    function pointerUp(e){ drawing = false; }
+
+    function getPos(e){
+      const rect = canvas.getBoundingClientRect();
+      return {x: (e.clientX - rect.left), y: (e.clientY - rect.top)};
+    }
+
+    function drawErase(e){
+      if(!drawing) return;
+      const p = getPos(e);
+      const radius = Math.max(18, Math.min(innerWidth, innerHeight) * 0.04);
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      // 부드러운 가장자리
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, radius, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 포인터 이동 시 연속적으로 지우기
+    canvas.addEventListener('pointerdown', (e)=>{ canvas.setPointerCapture(e.pointerId); pointerDown(e); });
+    canvas.addEventListener('pointermove', (e)=>{ drawErase(e); });
+    canvas.addEventListener('pointerup', (e)=>{ canvas.releasePointerCapture(e.pointerId); pointerUp(e); });
+    canvas.addEventListener('pointercancel', ()=>{ drawing = false; });
+
+    // 더 자연스러운 지우개(드래그 시 선으로 이어줌)
+    // 간단한 보정을 위해 이전 포인트로 선 그리기
+    let last = null;
+    function drawErase(e){
+      const p = getPos(e);
+      const radius = Math.max(18, Math.min(innerWidth, innerHeight) * 0.04);
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      if(!last || !drawing){
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI*2);
+        ctx.fill();
+      } else {
+        ctx.lineWidth = radius*2;
+        ctx.beginPath();
+        ctx.moveTo(last.x, last.y);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+      last = {x:p.x, y:p.y};
+      if(!drawing) last = null;
+    }
+
+    canvas.addEventListener('pointerdown', (e)=>{ canvas.setPointerCapture(e.pointerId); drawing = true; last = null; drawErase(e); });
+    canvas.addEventListener('pointermove', (e)=>{ if(drawing) drawErase(e); });
+    canvas.addEventListener('pointerup', (e)=>{ drawing = false; last = null; });
+
+    // 윈도우 리사이즈 대응
+    window.addEventListener('resize', resize);
+    resize();
+
+    // 접근성: 키보드로 지우기 (스페이스바로 전체 초기화해 보기)
+    window.addEventListener('keydown', (e)=>{
+      if(e.code === 'Space'){
+        e.preventDefault();
+        // 초기 상태로 다시 그림 (전체 덮음)
+        drawOverlay();
+      }
+    });
+  </script>
+</body>
+</html>
